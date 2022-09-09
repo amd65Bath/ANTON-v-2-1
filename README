@@ -1,0 +1,242 @@
+Installation
+============
+
+To compute answer sets you will need a grounder and a solver.  Currently the best bet are probably GrinGo and clasp, although feel free to experiment with other, the latest version is prefered although Gringo >= 2.0.0 and clasp >= 1.0.0 are probably sufficient.  Both are available as parts of the potassco collection:
+
+http://potassco.sf.net/
+
+Output for lilypond and csound are also supported.  Obviously, to use these, you'll need to have them installed (note:
+
+http://lilypond.org/web/install/
+http://www.csounds.com/
+
+
+Usage
+=====
+
+Usage is broken into three phases, generating the program, computing answer
+sets and interpretting the results.
+
+
+Generation
+----------
+
+To help manage the myriad of options, a program builder script is used.  The following are some examples:
+
+# Creates a program with the default length, mode, etc.  The task defaults to compose.
+$ ./programBuilder.pl > program
+
+
+# Pieces of length 10 (each) in a minor mode.
+$ ./programBuilder.pl --task=compose --mode=minor --time=10 > program
+
+
+# A piece consisting of two parts
+$ ./programBuilder.pl --task=compose --style=duet > program
+
+
+# Composes a tune using the given piece.
+# If the piece is complete then this should give only one answer set.  
+# If it is a fragment it will give up to N tunes
+$ ./programBuilder.pl --task=compose --piece=examples/good/simple.1 > program
+
+
+# Returns answer sets describing which rules are broken by the piece.
+$ ./programBuilder.pl --task=diagnose --piece=examples/bad/solo_minor_bugs.1 > program
+
+
+Solving
+-------
+
+To compute N pieces using gringo/clasp:
+
+$ cat program | gringo | clasp $N > tunes
+
+As clasp is deterministic, this will always give the same piece.  Thus you may want to add some randomisation:
+
+$ cat program | gringo | clasp --rand-freq=0.05 --seed=$RANDOM $N > tunes
+
+Users of clasp who are intending to generate more than 1 piece may also wish to add --restart-on-model which should give a better variety of pieces.
+
+
+Interpretation
+--------------
+
+Interpretting the results is done using the parse script.  It supports a number of types of output:
+
+1. Human readable:
+
+$ ./parse.pl --output=human < tunes
+
+To switch key (within the same mode), simply use the --fundamental flag.
+Without this, the fundamental note defaults to the basic choice for the given mode.
+
+$ ./parse.pl --output=human --fundamental=g < tunes
+
+
+2. Example format (see below), essentially an AnsProlog fragment,
+ suitable for use with programBuilder --piece=...
+
+$ ./parse.pl --output=example < tunes
+
+
+3. Lilypond format.  The score will display one bar for each answer,
+ polyphonic answers are displayed on grouped staves. (Note that the
+ fundamental appears option is buggy with lilypond output).
+
+$ ./parse.pl --output=lilypond < tunes > tunes.ly
+$ lilypond tunes.ly
+
+
+4. Csound format.
+
+$ ./parse.pl --output=csound < tunes > tunes.csd
+$ csound tunes.csd -W
+
+The csound-templates/ directory contains a number of csound files into which
+ the generated tunes will be added.  By using the --template=... option to 
+parse.pl, you can select one of the other orchestrations.
+
+
+Putting it all Together
+-----------------------
+
+If you wanted to play 4 bars of a duet in E major, you might run:
+
+$ ./programBuilder.pl --task=compose --style=duet --mode=major --time=16 > program
+$ cat program | gringo | clasp --restart-on-model --rand-freq=0.05 --seed=$RANDOM 1 > tunes
+$ ./parse.pl --fundamental=e --output=csound --template=wind-quartet < tunes > tunes.csd
+$ csound tunes.csd -W
+$ aplay test.wav
+
+
+Diagnosis
+---------
+
+Anton also has a diagnosis mode.  This allows errors in pieces or parts of pieces to be detected.  This is intended to be used for computer assisted composition as well as testing and debugging udring the development of Anton.
+
+The simpliest case is to use with a piece in example format (see below):
+
+$ ./programBuilder.pl --task=diagnose --piece=examples/bad/solo_minor_bugs.1 > program
+
+This should have one answer set which contains error atoms giving each thing wrong with the piece.  As errors are given per time step and per part, they may not be quite where you expect them (in the case of errors caused by sequences / combinations of notes).  If it has no answer sets then the piece is free of errors.
+
+In the case of a fragment of a piece, this will give all possible completions and what is wrong with each one.  As this may not be quite what is wanted, it's worth trying clasp's --cautious mode:
+
+$ cat program | gringo | clasp --cautious
+
+This will give a single answer set of things which are wrong with every completion (i.e. things that are wrong with the fragment plus any consequences).  It's important to note that there is an obscure case in which there is nothing wrong with the fragment but every possible completeion has something (different) wrong with it.  In this case there will be no cautious model but also no valid completions.
+
+If the input piece is very broken (i.e. contains notes outside the scale, jumps of more than an octive, parts that cross over) it is possible that diagnosis won't recognise all of the things wrong with the piece.  It will correctly note that it is wrong and give some of the more simple errors but it may miss some of the more obscure ones.  This is the result of adding constraints to improve the instantiation (and thus make things run faster).  Regardless this won't mean that it fails to recognise an incorrect piece / fragment; it just may only get the obvious reasons why it's wrong.
+
+
+
+Examples
+========
+
+The examples directory contains a number of examples, sorted into directories by good (things that people think are interesting tunes), valid (things that are musically correct but uninteresting) and bad (things that are incorrect).  They are stored as ASP program fragments.  A couple of helper scripts have are provided:
+
+$ ./save.pl valid myexample < tunes
+
+Saves a set of answer sets (in the file tunes) as valid examples.  Each answer set will be saved as myexample.1, myexample.2, etc. and will be put into the correct (sub)directory (so that an automated script can test these).  Note save must be run from the base directory as currently paths are hardcoded.
+
+$ ./programBuilder.pl --task=parse --piece=examples/valid/myexample.3
+
+Will convert the example in examples/valid/myexample.3 into a program that will give that piece (valid or not, complete or not) as an answer set, so if you wanted to hear some of the examples:
+
+$ ./programBuilder.pl --task=parse --piece=examples/good/brilliant | gringo | clasp | ./parse.pl --output=csound > brilliant.csd
+$ csound brilliant.csd -W
+# ...
+
+To check that an example can still be produced, simply add it to the input program:
+
+$ ./programBuilder.pl --piece=examples/valid/myexample.3 | gringo | clasp $N > tunes
+
+This should result in exactly one answer set, which is the same as the example.
+
+
+
+Automated Testing
+=================
+
+The examples also form the basis of the automatic regression test system.  To check that all of the good and valid examples can still be generated and that there have been no regressions, run:
+
+$ ./test.sh
+
+To run one test:
+
+$ ./test.sh examples/valid/range.1
+
+This uses the $GROUNDER and $SOLVER environmental variables to determine what solver is being used.
+
+
+
+Rhythm
+======
+
+Anton has an option for adding rhythm.  This is enabled by the --rhythm flag to programBuilder.pl and is interpretted by parse.pl's output modes.  It requires a a grounder with a working power operator which at the time of writing is only available in the trunk version of GrinGo:
+
+svn co https://potassco.svn.sourceforge.net/svnroot/potassco/trunk/gringo
+
+Versions of GrinGo after 2.0.3 should also work.  Note that the rhythm
+mode is memory intensive, particularly as the number of parts increase.
+
+
+programBuilder options
+----------------------
+--rhythm   	      Turns on the rhythm mode.
+--measures	      The number of measures (bars) to compose.
+--time-signature      The time signature for the piece, currently only
+		      the common and well known ones are supported and
+		      the same one is used for all parts.  "2-layer"
+		      and "3-layer" are effectively 'wildcard' time
+		      sigantures and allow the solver to pick.
+--time		      A comma separated list of the number of notes
+		      for each part (the last time will be applied to
+		      all remaining parts) that will be fitted to the measures.
+
+
+parse options
+-------------
+--measure-duration    The duration of a measure, as an alternative to note-duration.
+
+
+
+Example
+-------
+
+$ ./programBuilder.pl --task=compose --style=duet --mode=major --rhythm --measures=2 --time-signature="4/4" --time=15,10 > program
+$ cat program | gringo | clasp --restart-on-model --rand-freq=0.05 --seed=$RANDOM 1 > tunes
+$ ./parse.pl --fundamental=g --output=csound --template=wind-quartet < tunes > tunes.csd
+$ csound tunes.csd -W
+$ aplay test.wav
+
+
+Solver Options
+==============
+
+Solvers that do not implement clause learning seem to perform
+particularly badly on programs generated by Anton.  clasp, cmodels and
+sup are the recommended solvers.
+
+clasp
+-----
+
+Benjamin Kaufmann suggests the following options for clasp:
+
+--heuristic=VSIDS --restarts=100,1.5,1000 --save-progress
+
+In addition, I tend to use:
+
+--rand-freq=0.05 --seed=$RANDOM --restart-on-model
+
+Which introduce an amount of randomisation to the search, thus giving different pieces each time it is run.
+
+
+cmodels
+-------
+
+MiniSAT 2 is probably the best choice of back end solver for cmodels:
+
+-ms2
+
