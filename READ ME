@@ -1,0 +1,11 @@
+#to run ANTON's compositional fuction, run makeComposition.sh from the testing folder from your directory
+
+the arguments accepted into makeComposition.sh are:
+params.cfg  (your configuration file where you can set your variables to go into programBuilder.pl
+results     (a placeholder name for the name of your text file where the results of the run is stored)
+testing     (make sure this is the same name of your directory you want to store the output files in)
+
+
+you can set your own parameters of how you want ANTON to run by opening params.cfg and changing the repective parameter:
+
+Test|Task|Time|Style|Mode|Rhythm|Measures|Time-Signature|Form|SetKey|Num.Comps|Result|Run-Time
